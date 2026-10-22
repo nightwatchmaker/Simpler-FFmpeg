@@ -626,6 +626,28 @@ fn audio_settings(quality: u8) -> (Option<String>, &'static str) {
     }
 }
 
+fn find_matches(root: &str, file_name: &str) -> Result<Vec<String>, String> {
+    let mut command = Command::new("find");
+    if root == "/" {
+        // Search the entire mounted filesystem tree, not only the home folder.
+        command.args(["/", "-type", "f", "-name", file_name, "-print0"]);
+    } else {
+        command.args([root, "-type", "f", "-name", file_name, "-print0"]);
+    }
+    let result = command
+        .output()
+        .map_err(|error| format!("could not search for {file_name}: {error}"))?;
+    let mut matches: Vec<String> = result
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| String::from_utf8_lossy(path).into_owned())
+        .collect();
+    matches.sort();
+    matches.dedup();
+    Ok(matches)
+}
+
 fn search_for_input(input: &str) -> Result<Option<String>, String> {
     let home =
         env::var("HOME").map_err(|_| "could not determine your home directory".to_string())?;
@@ -635,18 +657,11 @@ fn search_for_input(input: &str) -> Result<Option<String>, String> {
         .ok_or_else(|| "input does not contain a valid file name".to_string())?;
 
     println!("Could not find {input}. Searching {home} and below...");
-    let result = Command::new("find")
-        .args([home.as_str(), "-type", "f", "-name", file_name, "-print0"])
-        .output()
-        .map_err(|error| format!("could not search your home directory: {error}"))?;
-    let mut matches: Vec<String> = result
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| String::from_utf8_lossy(path).into_owned())
-        .collect();
-    matches.sort();
-    matches.dedup();
+    let mut matches = find_matches(&home, file_name)?;
+    if matches.is_empty() {
+        println!("(File still hasn't been found, searching everywhere)");
+        matches = find_matches("/", file_name)?;
+    }
 
     for candidate in matches {
         let folder = Path::new(&candidate)
