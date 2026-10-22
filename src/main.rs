@@ -14,6 +14,7 @@ struct Options {
     video_filters: Vec<String>,
     image_format: String,
     audio_quality: u8,
+    autoplay: bool,
     audio_copy: bool,
     force: bool,
 }
@@ -148,6 +149,16 @@ faster and avoids additional quality loss, but it cannot be combined with
 Example:
   ffconvert input.mp4 output.mkv --audio-copy"#
         }
+        "autoplay" => {
+            r#"--autoplay
+
+After a successful video conversion, opens the output with ffplay and waits
+until playback ends or you close it. This affects normal video output, not
+frame-directory extraction.
+
+Example:
+  ffconvert input.mp4 output.mp4 --resolution 1280x720 --autoplay"#
+        }
         "force" | "overwrite" => {
             r#"--force
 
@@ -231,6 +242,7 @@ Options:
   --deflicker true|false     Reduce flicker
   --deshake true|false       Stabilize shaky video
   --audio-quality 1-10       10 is normal, 1 is extreme lo-fi (default: 10)
+  --autoplay                 Open the converted video with ffplay when done
   --audio-copy               Copy the audio stream without filtering/re-encoding
   --force                    Overwrite an existing output without asking
   -h, --help                 Show this help
@@ -273,6 +285,7 @@ fn closest_option(input: &str) -> Option<&'static str> {
         "--deflicker",
         "--deshake",
         "--image-format",
+        "--autoplay",
         "--audio-quality",
         "--audio-copy",
         "--force",
@@ -322,6 +335,7 @@ fn parse_args() -> Result<Options, String> {
     let mut video_filters = Vec::new();
     let mut image_format = "png".to_string();
     let mut audio_quality = 10;
+    let mut autoplay = false;
     let mut audio_copy = false;
     let mut force = false;
     let args: Vec<String> = env::args().skip(1).collect();
@@ -338,6 +352,7 @@ fn parse_args() -> Result<Options, String> {
                 std::process::exit(0);
             }
             "--force" => force = true,
+            "--autoplay" => autoplay = true,
             "--audio-copy" => audio_copy = true,
             "--image-format" => {
                 if i + 1 >= args.len() {
@@ -527,6 +542,7 @@ fn parse_args() -> Result<Options, String> {
         video_filters,
         image_format,
         audio_quality,
+        autoplay,
         audio_copy,
         force,
     })
@@ -920,6 +936,18 @@ fn main() -> ExitCode {
     }
     if !Path::new(&options.output).is_file() {
         return fail("FFmpeg reported success but output file was not created");
+    }
+
+    if options.autoplay {
+        println!("Opening {} with ffplay...", options.output);
+        match Command::new("ffplay")
+            .args(["-autoexit", &options.output])
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => eprintln!("ffconvert: ffplay exited with {status}"),
+            Err(error) => eprintln!("ffconvert: could not start ffplay: {error}"),
+        }
     }
 
     let probe = Command::new("ffprobe")
