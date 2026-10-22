@@ -592,6 +592,10 @@ fn nvidia_available() -> bool {
         .is_ok_and(|status| status.success())
 }
 
+fn render_device_available() -> bool {
+    Path::new("/dev/dri/renderD128").exists()
+}
+
 fn audio_settings(quality: u8) -> (Option<String>, &'static str) {
     match quality {
         10 => (None, "normal"),
@@ -876,6 +880,9 @@ fn main() -> ExitCode {
         .to_ascii_lowercase();
     let encoders = available_encoders();
     let use_nvenc = nvidia_available() && has_encoder(&encoders, "h264_nvenc");
+    let use_qsv = !use_nvenc && render_device_available() && has_encoder(&encoders, "h264_qsv");
+    let use_vaapi =
+        !use_nvenc && !use_qsv && render_device_available() && has_encoder(&encoders, "h264_vaapi");
     let (video_codec, audio_codec, video_preset) = match output_ext.as_str() {
         "webm" => {
             let v = if has_encoder(&encoders, "libsvtav1") {
@@ -890,6 +897,10 @@ fn main() -> ExitCode {
         "mkv" => {
             let v = if use_nvenc {
                 "h264_nvenc"
+            } else if use_qsv {
+                "h264_qsv"
+            } else if use_vaapi {
+                "h264_vaapi"
             } else if has_encoder(&encoders, "libx264") {
                 "libx264"
             } else {
@@ -900,6 +911,10 @@ fn main() -> ExitCode {
         _ => {
             let v = if use_nvenc {
                 "h264_nvenc"
+            } else if use_qsv {
+                "h264_qsv"
+            } else if use_vaapi {
+                "h264_vaapi"
             } else if has_encoder(&encoders, "libx264") {
                 "libx264"
             } else {
@@ -913,11 +928,17 @@ fn main() -> ExitCode {
     if let Some(size) = &options.resolution {
         video_filters.push(format!("scale={size}:force_original_aspect_ratio=decrease"));
     }
+    if video_codec == "h264_vaapi" {
+        video_filters.push("format=nv12,hwupload".to_string());
+    }
     let video_filter_chain = video_filters.join(",");
 
     let mut command = Command::new("ffmpeg");
     command.arg("-hide_banner");
     command.arg(if overwrite { "-y" } else { "-n" });
+    if video_codec == "h264_vaapi" {
+        command.args(["-vaapi_device", "/dev/dri/renderD128"]);
+    }
     command.args(["-i", &input, "-map", "0:v:0", "-map", "0:a?"]);
     if !video_filter_chain.is_empty() {
         command.args(["-vf", &video_filter_chain]);
@@ -925,9 +946,16 @@ fn main() -> ExitCode {
     if let Some(rate) = &options.fps {
         command.args(["-r", rate]);
     }
-    command.args(["-c:v", video_codec, "-preset", video_preset]);
+    command.args(["-c:v", video_codec]);
+    if video_codec != "h264_vaapi" {
+        command.args(["-preset", video_preset]);
+    }
     if video_codec == "h264_nvenc" {
         command.args(["-cq", "23"]);
+    } else if video_codec == "h264_qsv" {
+        command.args(["-global_quality", "23"]);
+    } else if video_codec == "h264_vaapi" {
+        command.args(["-qp", "23"]);
     } else if video_codec == "libsvtav1" {
         command.args(["-crf", "30"]);
     } else if video_codec == "libvpx-vp9" {

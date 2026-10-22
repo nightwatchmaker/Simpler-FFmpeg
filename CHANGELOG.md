@@ -19,5 +19,5 @@ All notable changes to Simpler-FFmpeg are documented here.
 ## [0.1.0]
 
 - Initial Rust-based FFmpeg wrapper.
-- Automatic encoder selection with NVIDIA NVENC when available and libx264 fallback.
+- Automatic hardware encoder selection with NVIDIA NVENC, Intel Quick Sync, or VAAPI when available, with libx264 fallback.
 - Resolution, FPS, audio quality, audio copying, and safe overwrite handling.

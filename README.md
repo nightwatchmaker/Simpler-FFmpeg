@@ -1,6 +1,6 @@
 # Simpler-FFmpeg
 
-A small Rust CLI that makes common FFmpeg conversions less cursed.
+The video encoder is selected automatically: NVIDIA NVENC when an NVIDIA GPU is available, Intel Quick Sync or VAAPI when a Linux render device is available, and libx264 as the CPU fallback.
 
 ## Usage
 
