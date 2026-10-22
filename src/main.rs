@@ -173,7 +173,7 @@ Example:
             r#"--force
 
 Overwrites an existing output file without asking. Without --force,
-ffconvert asks "Overwrite it? [Y/N]" before replacing an existing file.
+ffconvert asks "Overwrite it? [Y/N/A]" before replacing an existing file. Choose A to keep the original and create a numbered copy.
 
 Example:
   ffconvert input.mp4 output.mp4 --force"#
@@ -683,7 +683,7 @@ fn search_for_input(input: &str) -> Result<Option<String>, String> {
 
 // Keep the confirmation prompt on separate lines in Konsole so resizing
 // cannot make the short Y/N response look attached to a wrapped path.
-fn ask_yes_no(prompt: &str) -> Result<bool, String> {
+fn ask_choice(prompt: &str, allow_alternate: bool) -> Result<char, String> {
     println!("{prompt}");
     io::stdout()
         .flush()
@@ -696,8 +696,10 @@ fn ask_yes_no(prompt: &str) -> Result<bool, String> {
             .read_line(&mut answer)
             .map_err(|error| format!("could not read answer: {error}"))?;
         return match answer.trim().to_ascii_lowercase().as_str() {
-            "y" | "yes" => Ok(true),
-            "n" | "no" => Ok(false),
+            "y" | "yes" => Ok('y'),
+            "n" | "no" => Ok('n'),
+            "a" | "alternate" if allow_alternate => Ok('a'),
+            _ if allow_alternate => Err("please answer Y, N, or A".into()),
             _ => Err("please answer Y or N".into()),
         };
     }
@@ -725,19 +727,45 @@ fn ask_yes_no(prompt: &str) -> Result<bool, String> {
             return Err(format!("could not read answer: {error}"));
         }
         match byte[0].to_ascii_lowercase() {
-            b'y' => break true,
-            b'n' => break false,
+            b'y' => break 'y',
+            b'n' => break 'n',
+            b'a' if allow_alternate => break 'a',
             // Ignore Enter, Ctrl+C, and arrow-key escape sequences.
             _ => {}
         }
     };
 
     let restored = Command::new("stty").args(saved.split_whitespace()).status();
-    println!("{}", if answer { "Y" } else { "N" });
+    println!("{}", answer.to_ascii_uppercase());
     if !restored.map_or(false, |status| status.success()) {
         return Err("could not restore terminal settings".into());
     }
     Ok(answer)
+}
+
+fn ask_yes_no(prompt: &str) -> Result<bool, String> {
+    Ok(ask_choice(prompt, false)? == 'y')
+}
+
+fn alternate_output_path(path: &str) -> String {
+    let original = Path::new(path);
+    let parent = original.parent().unwrap_or_else(|| Path::new(""));
+    let stem = original
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("output");
+    let extension = original.extension().and_then(|value| value.to_str());
+    for number in 1.. {
+        let file_name = match extension {
+            Some(extension) => format!("{stem} ({number}).{extension}"),
+            None => format!("{stem} ({number})"),
+        };
+        let candidate = parent.join(file_name);
+        if !candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    unreachable!()
 }
 
 fn convert_frames(options: &Options, input: &str) -> ExitCode {
@@ -856,24 +884,31 @@ fn main() -> ExitCode {
     if options.output.ends_with('/') || Path::new(&options.output).is_dir() {
         return convert_frames(&options, &input);
     }
-    let overwrite = if Path::new(&options.output).exists() && !options.force {
+    let mut output = options.output.clone();
+    let overwrite = if Path::new(&output).exists() && !options.force {
         let prompt = format!(
-            "Output already exists:\n  {}\nOverwrite it? [Y/N]",
-            options.output
+            "Output already exists:\n  {}\nOverwrite it? [Y/N/A]\nA = keep both and create a numbered copy",
+            output
         );
-        match ask_yes_no(&prompt) {
-            Ok(true) => true,
-            Ok(false) => return fail("not overwriting existing output"),
+        match ask_choice(&prompt, true) {
+            Ok('y') => true,
+            Ok('n') => return fail("not overwriting existing output"),
+            Ok('a') => {
+                output = alternate_output_path(&output);
+                println!("Using alternate output: {output}");
+                false
+            }
+            Ok(_) => unreachable!(),
             Err(error) => return fail(error),
         }
     } else {
         options.force
     };
-    if options.output.ends_with('/') {
+    if output.ends_with('/') {
         return fail("output must be a file path");
     }
 
-    let output_ext = Path::new(&options.output)
+    let output_ext = Path::new(&output)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
@@ -977,7 +1012,7 @@ fn main() -> ExitCode {
             command.args(["-af", &filter]);
         }
     }
-    command.args(["-map_metadata", "0", &options.output]);
+    command.args(["-map_metadata", "0", &output]);
 
     let (_, quality_name) = audio_settings(options.audio_quality);
     let audio_label = if options.audio_copy {
@@ -988,7 +1023,7 @@ fn main() -> ExitCode {
             audio_codec, options.audio_quality, quality_name
         )
     };
-    println!("Converting: {} -> {}", input, options.output);
+    println!("Converting: {} -> {}", input, output);
     println!("Video: {} | audio: {}", video_codec, audio_label);
     if let Some(size) = &options.resolution {
         println!("Resolution: {size}");
@@ -1004,16 +1039,13 @@ fn main() -> ExitCode {
     if !status.success() {
         return fail(format!("ffmpeg exited with {status}"));
     }
-    if !Path::new(&options.output).is_file() {
+    if !Path::new(&output).is_file() {
         return fail("FFmpeg reported success but output file was not created");
     }
 
     if options.autoplay {
-        println!("Opening {} with ffplay...", options.output);
-        match Command::new("ffplay")
-            .args(["-autoexit", &options.output])
-            .status()
-        {
+        println!("Opening {} with ffplay...", output);
+        match Command::new("ffplay").args(["-autoexit", &output]).status() {
             Ok(status) if status.success() => {}
             Ok(status) => eprintln!("ffconvert: ffplay exited with {status}"),
             Err(error) => eprintln!("ffconvert: could not start ffplay: {error}"),
@@ -1028,17 +1060,17 @@ fn main() -> ExitCode {
             "format=duration",
             "-of",
             "default=noprint_wrappers=1:nokey=1",
-            &options.output,
+            &output,
         ])
         .output();
     match probe {
         Ok(p) if p.status.success() => println!(
             "Done: {} ({})",
-            options.output,
+            output,
             String::from_utf8_lossy(&p.stdout).trim()
         ),
-        _ => println!("Done: {} (ffprobe could not read duration)", options.output),
+        _ => println!("Done: {} (ffprobe could not read duration)", output),
     }
-    let _ = fs::metadata(&options.output);
+    let _ = fs::metadata(&output);
     ExitCode::SUCCESS
 }

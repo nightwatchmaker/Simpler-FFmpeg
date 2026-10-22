@@ -11,7 +11,7 @@ All notable changes to Simpler-FFmpeg are documented here.
 - Added frame extraction to numbered image files such as `1.png`, `2.png`, and `10.png`.
 - Added PNG, JPG, JPEG, and WebP frame output support.
 - Added recursive input-file searching under the user's home directory, followed by a root-filesystem (`/`) search if needed, with confirmation prompts.
-- Added overwrite confirmation for existing video outputs and frame directories.
+- Added overwrite choice `A` to preserve the original output and automatically create `file (1).ext`, `file (2).ext`, and so on.
 - Added detailed feature help with commands such as `ffconvert --help --saturation`.
 - Added typo suggestions for misspelled options and help topics.
 - Added Konsole-friendly Y/N prompts that ignore arrow-key escape sequences and Ctrl+C input noise.

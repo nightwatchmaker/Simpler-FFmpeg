@@ -15,7 +15,7 @@ ffconvert input.mp4 output.mp4 --autoplay
 ffconvert input.mp4 --onlyplay
 ```
 
-Paths are passed directly to FFmpeg, so quoted spaces and parentheses work normally. If the input path is missing, ffconvert searches `$HOME` recursively by filename first, then searches the root filesystem (`/`) if needed and asks before selecting a match. Existing files are protected by default; use `--force` to replace one.
+Paths are passed directly to FFmpeg, so quoted spaces and parentheses work normally. If the input path is missing, ffconvert searches `$HOME` recursively by filename first, then searches the root filesystem (`/`) if needed and asks before selecting a match. Existing files are protected by default; use `--force` to replace one, or choose `A` at the overwrite prompt to create a numbered copy such as `output (1).mp4`.
 
 `--audio-quality` ranges from 1 to 10. Level 10 is normal high-quality audio. Lower levels progressively reduce sample rate and bit depth with FFmpeg's `aresample` and `acrusher` filters. `--audio-copy` skips audio processing entirely.
 
