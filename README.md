@@ -12,6 +12,7 @@ ffconvert input.mp4 output.mkv --audio-copy
 ffconvert input.mp4 frames/ --fps 12
 ffconvert input.mp4 frames/ --fps 12 --image-format jpg
 ffconvert input.mp4 output.mp4 --autoplay
+ffconvert input.mp4 --onlyplay
 ```
 
 Paths are passed directly to FFmpeg, so quoted spaces and parentheses work normally. If the input path is missing, ffconvert searches `$HOME` recursively by filename and asks before selecting a match. Existing files are protected by default; use `--force` to replace one.
@@ -28,7 +29,11 @@ Available effects include `--saturation`, `--contrast`, `--brightness`, `--gamma
 
 If the output ends in `/`, ffconvert extracts frames instead of making a video. Frames start at `1` and use `%d`-style numbering: `1.png`, `2.png`, `10.png`, and so on. PNG is the default; use `--image-format jpg`, `jpeg`, or `webp` for another format.
 
-Use `--autoplay` to open a successfully converted video with `ffplay` after FFmpeg finishes. Frame extraction does not autoplay.
+Use `--autoplay` to open a successfully converted video with `ffplay` after FFmpeg finishes. Frame extraction does not autoplay. Use `--onlyplay` when you want to skip conversion entirely and just open the input with ffplay:
+
+```bash
+ffconvert input.mp4 --onlyplay
+```
 
 ## Detailed help
 

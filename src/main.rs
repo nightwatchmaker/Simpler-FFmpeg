@@ -15,6 +15,7 @@ struct Options {
     image_format: String,
     audio_quality: u8,
     autoplay: bool,
+    onlyplay: bool,
     audio_copy: bool,
     force: bool,
 }
@@ -159,6 +160,15 @@ frame-directory extraction.
 Example:
   ffconvert input.mp4 output.mp4 --resolution 1280x720 --autoplay"#
         }
+        "onlyplay" => {
+            r#"--onlyplay
+
+Only opens the input with ffplay. No output path is needed and FFmpeg is not
+run. Playback closes when the video ends or you close the player.
+
+Example:
+  ffconvert input.mp4 --onlyplay"#
+        }
         "force" | "overwrite" => {
             r#"--force
 
@@ -243,6 +253,7 @@ Options:
   --deshake true|false       Stabilize shaky video
   --audio-quality 1-10       10 is normal, 1 is extreme lo-fi (default: 10)
   --autoplay                 Open the converted video with ffplay when done
+  --onlyplay                 Only play the input with ffplay; do not convert
   --audio-copy               Copy the audio stream without filtering/re-encoding
   --force                    Overwrite an existing output without asking
   -h, --help                 Show this help
@@ -286,6 +297,7 @@ fn closest_option(input: &str) -> Option<&'static str> {
         "--deshake",
         "--image-format",
         "--autoplay",
+        "--onlyplay",
         "--audio-quality",
         "--audio-copy",
         "--force",
@@ -336,6 +348,7 @@ fn parse_args() -> Result<Options, String> {
     let mut image_format = "png".to_string();
     let mut audio_quality = 10;
     let mut autoplay = false;
+    let mut onlyplay = false;
     let mut audio_copy = false;
     let mut force = false;
     let args: Vec<String> = env::args().skip(1).collect();
@@ -353,6 +366,7 @@ fn parse_args() -> Result<Options, String> {
             }
             "--force" => force = true,
             "--autoplay" => autoplay = true,
+            "--onlyplay" => onlyplay = true,
             "--audio-copy" => audio_copy = true,
             "--image-format" => {
                 if i + 1 >= args.len() {
@@ -525,10 +539,14 @@ fn parse_args() -> Result<Options, String> {
         i += 1;
     }
 
-    if positional.len() != 2 {
+    if onlyplay {
+        if positional.len() != 1 {
+            return Err("--onlyplay expects only an INPUT; use --help --onlyplay".into());
+        }
+    } else if positional.len() != 2 {
         return Err("expected INPUT and OUTPUT; use --help for examples".into());
     }
-    if positional[0] == positional[1] {
+    if !onlyplay && positional[0] == positional[1] {
         return Err("input and output must be different files".into());
     }
     if audio_copy && audio_quality != 10 {
@@ -536,13 +554,14 @@ fn parse_args() -> Result<Options, String> {
     }
     Ok(Options {
         input: positional[0].clone(),
-        output: positional[1].clone(),
+        output: positional.get(1).cloned().unwrap_or_default(),
         resolution,
         fps,
         video_filters,
         image_format,
         audio_quality,
         autoplay,
+        onlyplay,
         audio_copy,
         force,
     })
@@ -807,6 +826,14 @@ fn main() -> ExitCode {
             Err(error) => return fail(error),
         }
     };
+    if options.onlyplay {
+        println!("Playing {} with ffplay...", input);
+        return match Command::new("ffplay").args(["-autoexit", &input]).status() {
+            Ok(status) if status.success() => ExitCode::SUCCESS,
+            Ok(status) => fail(format!("ffplay exited with {status}")),
+            Err(error) => fail(format!("could not start ffplay: {error}")),
+        };
+    }
     if options.output.ends_with('/') || Path::new(&options.output).is_dir() {
         return convert_frames(&options, &input);
     }
